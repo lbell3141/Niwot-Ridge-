@@ -1,4 +1,8 @@
-workflow_8plots = function(dat_file, time_stamp_col, date_format) {
+#Lindsey Bell 
+#Workflow functions used on Niwot Ridge Data
+
+#8 zscore plots for the annual average of the growing season against the long-term annual average
+workflow_8basic_varplots = function(dat_file, time_stamp_col, date_format) {
   #loading libraries  
   library(lubridate)
   library(dplyr)
@@ -83,7 +87,7 @@ workflow_8plots = function(dat_file, time_stamp_col, date_format) {
 }
 
 
-
+#monthly average for each month in the growing season for each year for 8 basic variables 
 workflow_monavg = function(dat_file, time_stamp_col, date_format) {
   #loading libraries  
   library(lubridate)
@@ -117,17 +121,9 @@ workflow_monavg = function(dat_file, time_stamp_col, date_format) {
 }
 
 
-
-
-#daily data by month for one year
-
-function(dat_file, time_stamp_col, date_format) {
+#daily data by month for one year of interest (yoi)
+daily_zscore_8var_yoi = function(dat_file, yoi, time_stamp_col, date_format) {
  
-  dat_file = "AMF_US-NR1_FLUXNET_SUBSET_DD_1998-2016_3-5.csv"
-  time_stamp_col = "TIMESTAMP"
-  date_format = ymd
-  
-  
    #loading libraries  
   library(lubridate)
   library(dplyr)
@@ -174,69 +170,226 @@ function(dat_file, time_stamp_col, date_format) {
       mutate(!!z_score_col := (.data[[variable]]-.data[[st_mean_col]])/.data[[st_mean_col]])
   }
   
+  yr_yoi = filter(joined_dat, yr == yoi)
+  
+  yr_yoi$day = as.numeric(as.character(yr_yoi$day))
   z_score_vars = paste0("z_score_", variables)
-  plot_daily_zscore_2015 = 
+  plot_daily_zscore_yoi = 
     lapply(z_score_vars, function(z_var) {
-      yr_2015 = filter(joined_dat, yr == 2015)
-    ggplot(data = yr_2015, mapping = aes(x=day, y=!!sym(z_var), group=1))+
+      yr_yoi = filter(joined_dat, yr == yoi)
+    ggplot(data = yr_yoi, mapping = aes(x=day, y=!!sym(z_var), group=1))+
     geom_point()+
       geom_hline(yintercept = 0)+
-    facet_wrap(~ mon)
-    })
-  plot_daily_zscore_2015
-  
+    facet_wrap(~ mon)+
+      scale_x_discrete(breaks = seq(0,31, by = 5))
+    
+    plot_daily_zscore_yoi})
+}
 
-  z_score_vars = paste0("z_score_", variables)
-  plot_daily_zscore_2015 = 
+#plotting only gpp and ppfd with daily data against monthly mean for one year of interest (yoi)
+daily_gpp_ppfd_yoi = function(yoi, dat_file, time_stamp_col, date_format) {
+ 
+      #loading libraries  
+      library(lubridate)
+      library(dplyr)
+      
+      #loading in data and manipulating timestamps  
+      dat_file = read.csv(dat_file, header = TRUE, na.strings= "-9999", skip=0, sep = ",")
+      dat_file[[time_stamp_col]] = date_format(dat_file[[time_stamp_col]])
+      dat_file$day = format(dat_file[[time_stamp_col]], "%d")
+      dat_file$Months = months(dat_file[[time_stamp_col]])
+      dat_file$years = format(dat_file[[time_stamp_col]], "%Y")
+      
+      #creating a df with variables of interest for summer growing season
+      dat_file_fr = (data.frame(yr = dat_file$years,
+                                mon = dat_file$Months,
+                                day = dat_file$day,
+                                swc = dat_file$SWC_F_MDS_1,
+                                gpp = dat_file$GPP_DT_VUT_25,
+                                nee = dat_file$NEE_VUT_25,
+                                temp_atmos = dat_file$TA_F,
+                                temp_soil = dat_file$TS_F_MDS_1,
+                                precip = dat_file$P_F,
+                                ppfd_in = dat_file$PPFD_IN,
+                                ppfd_out = dat_file$PPFD_OUT) )
+      dat_file_fr = dat_file_fr[dat_file_fr$mon %in% c('July','August','September','October','November'),]
+      
+      
+      #finding the annual mean for each variable
+      columns = c("swc", "gpp", "nee", "temp_atmos", "temp_soil", "precip", "ppfd_in", "ppfd_out")
+      annual_means = dat_file_fr %>%
+        group_by(yr) %>%
+        summarise(across(all_of(columns), mean, na.rm = TRUE, .names = "st_mn_{.col}")) 
+      
+      #joining annual and long-term annual averages to create a new data frame
+      joined_dat = left_join(dat_file_fr, annual_means, by = "yr")
+      
+      #calculating z_score for each variable and placing in new columns in the data frame
+      variables = c("swc", "gpp", "nee", "temp_atmos", "temp_soil", "precip", "ppfd_in", "ppfd_out")
+      for (variable in variables){
+        st_mean_col = paste0("st_mn_", variable)
+        z_score_col = paste0("z_score_", variable)
+        
+        joined_dat = joined_dat%>%
+          group_by(yr)%>%
+          mutate(!!z_score_col := (.data[[variable]]-.data[[st_mean_col]])/.data[[st_mean_col]])
+      }
+      
+    z_score_vars = paste0("z_score_", variables)
+  plot_daily_zscore_yoi = 
     lapply(z_score_vars, function(z_var) {
       
-      yr_2015 = filter(joined_dat, yr == 2015)
+      yr_yoi = filter(joined_dat, yr == yoi)
       
-      ggplot(data = yr_2015, mapping = aes(x=day, y=.data[[z_var]], group=1))+
-        geom_point(aes(y=.data[[z_var]], color = "gpp"))+
-        geom_line(aes(y = .data[[z_var]], color = "ppfd_in"))
+      yr_yoi$day = as.numeric(as.character(yr_yoi$day))
+      plot_daily_zscore_yoi_gpp_ppfd = 
+        ggplot(data = yr_yoi, 
+               mapping = aes(day)) +
+        geom_point(aes(y = z_score_gpp, color = "z_score_gpp"))+
+        geom_point(aes(y = z_score_ppfd_in, color = "z_score_ppfd_in"))+
+        facet_wrap(~mon)+
         geom_hline(yintercept = 0)+
-        facet_wrap(~ mon)+
-          scale_color_manual(values = c("gpp" = "red", "ppfd_in" = "blue"))
-    })
+        scale_x_continuous(breaks = seq(0,31, by = 5))
+      
+      plot_daily_zscore_yoi_gpp_ppfd  
+      
+      })
+  plot_daily_zscore_yoi_gpp_ppfd  
+  }
   
-  
-  
-  multiplot(plotlist = plot_daily_zscore_2015, cols = 2)
+#plotting only gpp, ppfd, and swc with daily data against monthly mean for one year of interest (yoi)
+daily_gpp_ppfd_swc_yoi = function(yoi, dat_file, time_stamp_col, date_format) {
 
+  #loading libraries  
+  library(lubridate)
+  library(dplyr)
   
-  yr_2015$day = as.numeric(as.character(yr_2015$day))
- plot_daily_zscore_2015_gpp_ppfd = 
-   ggplot(data = yr_2015, 
-                mapping = aes(day)) +
-   geom_point(aes(y = z_score_gpp, color = "z_score_gpp"))+
-   geom_point(aes(y = z_score_ppfd_in, color = "z_score_ppfd_in"))+
-   facet_wrap(~mon)+
-   geom_hline(yintercept = 0)
-   scale_x_continuous(breaks = seq(0,31, by = 5))
- 
- plot_daily_zscore_2015_gpp_ppfd  
+  #loading in data and manipulating timestamps  
+  dat_file = read.csv(dat_file, header = TRUE, na.strings= "-9999", skip=0, sep = ",")
+  dat_file[[time_stamp_col]] = date_format(dat_file[[time_stamp_col]])
+  dat_file$day = format(dat_file[[time_stamp_col]], "%d")
+  dat_file$Months = months(dat_file[[time_stamp_col]])
+  dat_file$years = format(dat_file[[time_stamp_col]], "%Y")
   
- #plot the same thing for SRC tomorrow morning; write down questions  
+  #creating a df with variables of interest for summer growing season
+  dat_file_fr = (data.frame(yr = dat_file$years,
+                            mon = dat_file$Months,
+                            day = dat_file$day,
+                            swc = dat_file$SWC_F_MDS_1,
+                            gpp = dat_file$GPP_DT_VUT_25,
+                            nee = dat_file$NEE_VUT_25,
+                            temp_atmos = dat_file$TA_F,
+                            temp_soil = dat_file$TS_F_MDS_1,
+                            precip = dat_file$P_F,
+                            ppfd_in = dat_file$PPFD_IN,
+                            ppfd_out = dat_file$PPFD_OUT) )
+  dat_file_fr = dat_file_fr[dat_file_fr$mon %in% c('July','August','September','October','November'),]
   
   
-
-  #plotting graphs for each variable in one window 
-  par(mfrow = c(3,3))
-  z_score_vars = paste0("z_score_", variables)
-  plots = lapply(z_score_vars, function(z_var){ 
+  #finding the annual mean for each variable
+  columns = c("swc", "gpp", "nee", "temp_atmos", "temp_soil", "precip", "ppfd_in", "ppfd_out")
+  annual_means = dat_file_fr %>%
+    group_by(yr) %>%
+    summarise(across(all_of(columns), mean, na.rm = TRUE, .names = "st_mn_{.col}")) 
+  
+  #joining annual and long-term annual averages to create a new data frame
+  joined_dat = left_join(dat_file_fr, annual_means, by = "yr")
+  
+  #calculating z_score for each variable and placing in new columns in the data frame
+  variables = c("swc", "gpp", "nee", "temp_atmos", "temp_soil", "precip", "ppfd_in", "ppfd_out")
+  for (variable in variables){
+    st_mean_col = paste0("st_mn_", variable)
+    z_score_col = paste0("z_score_", variable)
     
-    plot(joined_dat$mon, joined_dat[[z_var]],
-         main = z_var, 
-         xlab = "Year",
-         ylab = "Z-Score",
-         type = 'l', 
-         lwd = 1,
-    )
-    points(joined_dat$yr, joined_dat[[z_var]])
-    lines(joined_dat$yr, rep(0, length(joined_dat$yr)), lty = 2)
-    grid()
-  })
+    joined_dat = joined_dat%>%
+      group_by(yr)%>%
+      mutate(!!z_score_col := (.data[[variable]]-.data[[st_mean_col]])/.data[[st_mean_col]])
+  }
+  
+       yr_yoi = filter(joined_dat, yr == yoi)
+      
+      yr_yoi$day = as.numeric(as.character(yr_yoi$day))
+      plot_daily_zscore_yoi_4var = 
+        ggplot(data = yr_yoi, 
+               mapping = aes(day)) +
+        geom_point(aes(y = z_score_gpp, color = "z_score_gpp")) +
+        geom_point(aes(y = z_score_ppfd_in, color = "z_score_ppfd_in")) +
+        geom_point(aes(y = z_score_swc, color = "z_score_swc")) +
+        geom_point(aes(y = z_score_temp_atmos, color = "z_score_temp_atmos")) +
+        facet_wrap(~mon)+
+        geom_hline(yintercept = 0)+
+        scale_x_continuous(breaks = seq(0,31, by = 5))
+      
+      plot_daily_zscore_yoi_4var  
+      
+ }
+
+
+  
+
+daily_gpp_ppfd_swc_yoi = function(yoi, dat_file, time_stamp_col, date_format) {
+  
+  #loading libraries  
+  library(lubridate)
+  library(dplyr)
+  
+  #loading in data and manipulating timestamps  
+  dat_file = read.csv(dat_file, header = TRUE, na.strings= "-9999", skip=0, sep = ",")
+  dat_file[[time_stamp_col]] = date_format(dat_file[[time_stamp_col]])
+  dat_file$day = format(dat_file[[time_stamp_col]], "%d")
+  dat_file$Months = months(dat_file[[time_stamp_col]])
+  dat_file$years = format(dat_file[[time_stamp_col]], "%Y")
+  
+  #creating a df with variables of interest for summer growing season
+  dat_file_fr = (data.frame(yr = dat_file$years,
+                            mon = dat_file$Months,
+                            day = dat_file$day,
+                            swc = dat_file$SWC_F_MDS_1,
+                            gpp = dat_file$GPP_DT_VUT_25,
+                            nee = dat_file$NEE_VUT_25,
+                            temp_atmos = dat_file$TA_F,
+                            temp_soil = dat_file$TS_F_MDS_1,
+                            precip = dat_file$P_F,
+                            ppfd_in = dat_file$PPFD_IN,
+                            ppfd_out = dat_file$PPFD_OUT) )
+  dat_file_fr = dat_file_fr[dat_file_fr$mon %in% c('July','August','September','October','November'),]
+  
+  
+  #finding the annual mean for each variable
+  columns = c("swc", "gpp", "nee", "temp_atmos", "temp_soil", "precip", "ppfd_in", "ppfd_out")
+  annual_means = dat_file_fr %>%
+    group_by(yr) %>%
+    summarise(across(all_of(columns), mean, na.rm = TRUE, .names = "st_mn_{.col}")) 
+  
+  #joining annual and long-term annual averages to create a new data frame
+  joined_dat = left_join(dat_file_fr, annual_means, by = "yr")
+  
+  #calculating z_score for each variable and placing in new columns in the data frame
+  variables = c("swc", "gpp", "nee", "temp_atmos", "temp_soil", "precip", "ppfd_in", "ppfd_out")
+  for (variable in variables){
+    st_mean_col = paste0("st_mn_", variable)
+    z_score_col = paste0("z_score_", variable)
+    
+    joined_dat = joined_dat%>%
+      group_by(yr)%>%
+      mutate(!!z_score_col := (.data[[variable]]-.data[[st_mean_col]])/.data[[st_mean_col]])
+  }
+  
+  yr_yoi = filter(joined_dat, yr == yoi)
+  
+  yr_yoi$day = as.numeric(as.character(yr_yoi$day))
+  plot_daily_zscore_yoi_4var = 
+    ggplot(data = yr_yoi, 
+           mapping = aes(day)) +
+    geom_line(aes(y = z_score_gpp, color = "z_score_gpp")) +
+    geom_line(aes(y = z_score_ppfd_in, color = "z_score_ppfd_in")) +
+    geom_line(aes(y = z_score_swc, color = "z_score_swc")) +
+    geom_line(aes(y = z_score_temp_atmos, color = "z_score_temp_atmos")) +
+    facet_wrap(~mon)+
+    geom_hline(yintercept = 0)+
+    scale_x_continuous(breaks = seq(0,31, by = 5))
+  
+  plot_daily_zscore_yoi_4var  
   
 }
 
